@@ -79,4 +79,4 @@ jobs:
 
           echo "Backend failed to start"
           docker logs backend_container
-          exit 1
+          exit 2
