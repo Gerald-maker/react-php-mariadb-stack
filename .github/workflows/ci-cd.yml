@@ -36,7 +36,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          key: ${{ runner.os }}-buildx-${{ github.ref }}
           restore-keys: |
             ${{ runner.os }}-buildx-
 
@@ -44,9 +44,14 @@ jobs:
         run: |
           docker buildx build \
             --cache-from=type=local,src=/tmp/.buildx-cache \
-            --cache-to=type=local,dest=/tmp/.buildx-cache \
+            --cache-to=type=local,dest=/tmp/.buildx-cache-new \
             -t backend ./backend \
             --load
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
       - name: Run backend container
         run: |
@@ -57,15 +62,16 @@ jobs:
             -e DB_PASSWORD=root \
             backend
 
-      - name: Test backend API
+      - name: Wait for backend
         run: |
-          for i in {1..8}; do
-            RESPONSE=$(curl -s http://localhost:8000 || echo "")
-            if [[ "$RESPONSE" == *"Alice"* ]]; then
-              echo "Backend test passed"
+          echo "Waiting for backend..."
+          for i in {1..15}; do
+            if curl -s http://localhost:8000 | grep -q Alice; then
+              echo "Backend ready"
               exit 0
             fi
             sleep 2
           done
-          echo "Backend test failed"
+          echo "Backend failed to start"
+          docker logs backend_container
           exit 1
