@@ -1,0 +1,60 @@
+name: Docker Full-Stack CI/CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: demo
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend container
+        run: docker build -t simple-devop-demo-backend ./backend
+
+      - name: Build frontend container
+        run: docker build -t simple-devop-demo-frontend ./frontend
+
+      - name: Start Docker Compose
+        run: docker compose up -d
+
+      - name: Wait for backend to be ready
+        run: |
+          for i in {1..10}; do
+            curl -s http://localhost:8000 && break
+            echo "Waiting for backend..."
+            sleep 5
+          done
+
+      - name: Test backend API
+        run: |
+          RESPONSE=$(curl -s http://localhost:8000)
+          if [[ "$RESPONSE" != *"Alice"* ]]; then
+            echo "Backend test failed!"
+            exit 1
+          fi
+          echo "Backend test passed."
+
+      - name: Tear down
+        run: docker compose down
