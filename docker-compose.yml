@@ -1,25 +1,27 @@
-version: "3.9"
-
 services:
   database:
     image: mariadb:10.11
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: demo
-    # Do NOT map host port in CI/CD to avoid conflicts
-    # ports:
-    #   - "3306:3306"
+    volumes:
+      - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   backend:
     build: ./backend
     depends_on:
-      - database
+      database:
+        condition: service_healthy
     environment:
       DB_HOST: database
       DB_NAME: demo
       DB_USER: root
       DB_PASSWORD: root
-    # map host port only for local testing if you want
     ports:
       - "8000:80"
 
@@ -27,6 +29,5 @@ services:
     build: ./frontend
     depends_on:
       - backend
-    # map host port only for local testing if you want
     ports:
       - "3000:5173"
