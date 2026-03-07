@@ -65,13 +65,18 @@ jobs:
       - name: Wait for backend
         run: |
           echo "Waiting for backend..."
+
           for i in {1..15}; do
-            if curl -s http://localhost:8000 | grep -q Alice; then
-              echo "Backend ready"
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000 || echo "000")
+
+            if [ "$STATUS" = "200" ]; then
+              echo "Backend ready (HTTP 200)"
               exit 0
             fi
+
             sleep 2
           done
+
           echo "Backend failed to start"
           docker logs backend_container
           exit 1
