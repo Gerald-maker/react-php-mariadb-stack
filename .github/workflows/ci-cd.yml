@@ -29,8 +29,24 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
       - name: Build backend image
-        run: docker build -t backend ./backend
+        run: |
+          docker buildx build \
+            --cache-from=type=local,src=/tmp/.buildx-cache \
+            --cache-to=type=local,dest=/tmp/.buildx-cache \
+            -t backend ./backend \
+            --load
 
       - name: Run backend container
         run: |
@@ -41,16 +57,15 @@ jobs:
             -e DB_PASSWORD=root \
             backend
 
-      - name: Show running containers
-        run: docker ps
-
-      - name: Show backend logs
-        run: docker logs backend_container
-
       - name: Test backend API
         run: |
-          for i in {1..10}; do
-            echo "Attempt $i"
-            curl -v http://localhost:8000 || true
-            sleep 3
+          for i in {1..8}; do
+            RESPONSE=$(curl -s http://localhost:8000 || echo "")
+            if [[ "$RESPONSE" == *"Alice"* ]]; then
+              echo "Backend test passed"
+              exit 0
+            fi
+            sleep 2
           done
+          echo "Backend test failed"
+          exit 1
