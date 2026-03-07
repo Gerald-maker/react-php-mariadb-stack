@@ -38,22 +38,19 @@ jobs:
       - name: Start Docker Compose
         run: docker compose up -d
 
-      - name: Wait for backend to be ready
+      - name: Wait for backend & test API
         run: |
-          for i in {1..10}; do
-            docker compose exec -T backend curl -s http://localhost && break
-            echo "Waiting for backend..."
+          for i in {1..20}; do
+            RESPONSE=$(docker compose exec -T backend curl -s http://localhost || echo "")
+            if [[ "$RESPONSE" == *"Alice"* ]]; then
+              echo "Backend test passed."
+              exit 0
+            fi
+            echo "Waiting for backend to be ready..."
             sleep 5
           done
-
-      - name: Test backend API
-        run: |
-          RESPONSE=$(docker compose exec -T backend curl -s http://localhost)
-          if [[ "$RESPONSE" != *"Alice"* ]]; then
-            echo "Backend test failed!"
-            exit 1
-          fi
-          echo "Backend test passed."
+          echo "Backend test failed! Backend did not return expected data."
+          exit 1
 
       - name: Tear down
         run: docker compose down
