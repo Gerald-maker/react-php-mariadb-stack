@@ -1,33 +1,82 @@
-services:
-  database:
-    image: mariadb:10.11
-    environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: demo
-    volumes:
-      - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+name: Fast CI
 
-  backend:
-    build: ./backend
-    depends_on:
-      database:
-        condition: service_healthy
-    environment:
-      DB_HOST: database
-      DB_NAME: demo
-      DB_USER: root
-      DB_PASSWORD: root
-    ports:
-      - "8000:80"
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
-  frontend:
-    build: ./frontend
-    depends_on:
-      - backend
-    ports:
-      - "3000:5173"
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: demo
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ hashFiles('**/Dockerfile', '**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Build backend image
+        run: |
+          docker buildx build \
+            --cache-from=type=local,src=/tmp/.buildx-cache \
+            --cache-to=type=local,dest=/tmp/.buildx-cache-new \
+            -t backend ./backend \
+            --load
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+      - name: Run backend container
+        run: |
+          docker run -d --name backend_container -p 8000:80 \
+            -e DB_HOST=host.docker.internal \
+            -e DB_NAME=demo \
+            -e DB_USER=root \
+            -e DB_PASSWORD=root \
+            backend
+
+      - name: Wait for backend
+        run: |
+          echo "Waiting for backend..."
+
+          for i in {1..10}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000 || echo "000")
+
+            if [ "$STATUS" = "200" ]; then
+              echo "Backend ready (HTTP 200)"
+              exit 0
+            fi
+
+            sleep 2
+          done
+
+          echo "Backend failed to start"
+          docker logs backend_container
+          exit 1
