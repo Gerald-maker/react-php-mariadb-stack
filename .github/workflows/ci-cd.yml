@@ -1,4 +1,4 @@
-name: Docker Full-Stack CI/CD
+name: Fast CI
 
 on:
   push:
@@ -9,48 +9,45 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+
     services:
       mariadb:
         image: mariadb:10.11
         env:
           MYSQL_ROOT_PASSWORD: root
           MYSQL_DATABASE: demo
-        ports: []  # no host port mapping
+        ports:
+          - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping --silent"
-          --health-interval=10s
+          --health-cmd="mysqladmin ping -h localhost -proot"
+          --health-interval=5s
           --health-timeout=5s
-          --health-retries=3
+          --health-retries=5
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Build backend container
-        run: docker build -t simple-devop-demo-backend ./backend
-
-      - name: Build frontend container
-        run: docker build -t simple-devop-demo-frontend ./frontend
-
-      - name: Start Docker Compose
-        run: docker compose up -d
-
-      - name: Wait for backend & test API
+      - name: Start backend server
         run: |
-          for i in {1..20}; do
-            RESPONSE=$(docker compose exec -T backend curl -s http://localhost || echo "")
+          docker build -t backend ./backend
+          docker run -d -p 8000:80 \
+            -e DB_HOST=localhost \
+            -e DB_NAME=demo \
+            -e DB_USER=root \
+            -e DB_PASSWORD=root \
+            backend
+
+      - name: Wait for backend
+        run: |
+          for i in {1..10}; do
+            RESPONSE=$(curl -s http://localhost:8000 || echo "")
             if [[ "$RESPONSE" == *"Alice"* ]]; then
-              echo "Backend test passed."
+              echo "Backend test passed"
               exit 0
             fi
-            echo "Waiting for backend to be ready..."
-            sleep 5
+            sleep 2
           done
-          echo "Backend test failed! Backend did not return expected data."
+          echo "Backend test failed"
           exit 1
-
-      - name: Tear down
-        run: docker compose down
